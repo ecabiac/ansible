@@ -8,7 +8,7 @@ from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
 
-ANSIBLE_METADATA = {'metadata_version': '1.1',
+ANSIBLE_METADATA = {'metadata_version': '1.2',
                     'status': ['preview'],
                     'supported_by': 'community'}
 
@@ -138,31 +138,6 @@ options:
             name:
                 description:
                     - Name of the resource that is unique within a resource group. This name can be used to access the resource.
-    redirect_configurations:
-        version_added: "2.8"
-        description:
-            - Redirect configurations of the application gateway resource
-        suboptions:
-            redirect_type:
-                description:
-                    - Redirection type
-                choices:
-                    - 'permanent'
-                    - 'found'
-                    - 'see_other'
-                    - 'temporary'
-            target_listener:
-                description:
-                    - Reference to a listener to redirect the request to
-            include_path:
-                description:
-                    - Include path in the redirected url
-            include_query_string:
-                description:
-                    - Include query string in the redirected url
-            name:
-                description:
-                    - Name of the resource that is unique within a resource group
     ssl_certificates:
         description:
             - SSL certificates of the application gateway resource.
@@ -225,42 +200,10 @@ options:
             name:
                 description:
                     - Resource that is unique within a resource group. This name can be used to access the resource.
-    probes:
-        version_added: "2.8"
-        description:
-            - Probes available to the application gateway resource.
-        suboptions:
-            name:
-                description:
-                    - Name
-            protocol:
-                description:
-                    - Protocol
-                choices:
-                    - 'http'
-                    - 'https'
-            host:
-                description:
-                    - Host
-            path:
-                description:
-                    - Path
-            timeout:
-                description:
-                    - Timeout
-            interval:
-                description:
-                    - Interval
-            unhealthy_threshold:
-                description:
-                    - Unhealthy Threshold
     backend_http_settings_collection:
         description:
             - Backend http settings of the application gateway resource.
         suboptions:
-            probe:
-                description:
-                    - Probe
             port:
                 description:
                     - Port
@@ -352,9 +295,6 @@ options:
             name:
                 description:
                     - Name of the resource that is unique within a resource group. This name can be used to access the resource.
-            redirect_configuration:
-                description:
-                    - Redirect configuration resource of the application gateway
     state:
         description:
             - Assert the state of the Public IP. Use 'present' to create or update a and
@@ -363,6 +303,7 @@ options:
         choices:
             - absent
             - present
+        required: false
 
 extends_documentation_fragment:
     - azure
@@ -434,7 +375,7 @@ from ansible.module_utils.common.dict_transformations import (
 
 try:
     from msrestazure.azure_exceptions import CloudError
-    from msrest.polling import LROPoller
+    from msrestazure.azure_operation import AzureOperationPoller
     from azure.mgmt.network import NetworkManagementClient
     from msrest.serialization import Model
 except ImportError:
@@ -452,26 +393,6 @@ ssl_policy_spec = dict(
     policy_name=dict(type='str', choices=['ssl_policy20150501', 'ssl_policy20170401', 'ssl_policy20170401_s']),
     cipher_suites=dict(type='list'),
     min_protocol_version=dict(type='str', choices=['tls_v1_0', 'tls_v1_1', 'tls_v1_2'])
-)
-
-
-probe_spec = dict(
-    host=dict(type='str'),
-    interval=dict(type='int'),
-    name=dict(type='str'),
-    path=dict(type='str'),
-    protocol=dict(type='str', choices=['http', 'https']),
-    timeout=dict(type='int'),
-    unhealthy_threshold=dict(type='int')
-)
-
-
-redirect_configuration_spec = dict(
-    include_path=dict(type='bool'),
-    include_query_string=dict(type='bool'),
-    name=dict(type='str'),
-    redirect_type=dict(type='str', choices=['permanent', 'found', 'see_other', 'temporary']),
-    target_listener=dict(type='str')
 )
 
 
@@ -507,11 +428,6 @@ class AzureRMApplicationGateways(AzureRMModuleBase):
             ssl_certificates=dict(
                 type='list'
             ),
-            redirect_configurations=dict(
-                type='list',
-                elements='dict',
-                options=redirect_configuration_spec
-            ),
             frontend_ip_configurations=dict(
                 type='list'
             ),
@@ -524,15 +440,13 @@ class AzureRMApplicationGateways(AzureRMModuleBase):
             backend_http_settings_collection=dict(
                 type='list'
             ),
-            probes=dict(
-                type='list',
-                elements='dict',
-                options=probe_spec
-            ),
             http_listeners=dict(
                 type='list'
             ),
             request_routing_rules=dict(
+                type='list'
+            ),
+            url_path_maps=dict(
                 type='list'
             ),
             state=dict(
@@ -624,19 +538,6 @@ class AzureRMApplicationGateways(AzureRMModuleBase):
                     self.parameters["authentication_certificates"] = kwargs[key]
                 elif key == "ssl_certificates":
                     self.parameters["ssl_certificates"] = kwargs[key]
-                elif key == "redirect_configurations":
-                    ev = kwargs[key]
-                    for i in range(len(ev)):
-                        item = ev[i]
-                        if 'redirect_type' in item:
-                            item['redirect_type'] = _snake_to_camel(item['redirect_type'], True)
-                        if 'target_listener' in item:
-                            id = http_listener_id(self.subscription_id,
-                                                  kwargs['resource_group'],
-                                                  kwargs['name'],
-                                                  item['target_listener'])
-                            item['target_listener'] = {'id': id}
-                    self.parameters["redirect_configurations"] = ev
                 elif key == "frontend_ip_configurations":
                     ev = kwargs[key]
                     for i in range(len(ev)):
@@ -653,13 +554,6 @@ class AzureRMApplicationGateways(AzureRMModuleBase):
                     self.parameters["frontend_ports"] = kwargs[key]
                 elif key == "backend_address_pools":
                     self.parameters["backend_address_pools"] = kwargs[key]
-                elif key == "probes":
-                    ev = kwargs[key]
-                    for i in range(len(ev)):
-                        item = ev[i]
-                        if 'protocol' in item:
-                            item['protocol'] = _snake_to_camel(item['protocol'], True)
-                    self.parameters["probes"] = ev
                 elif key == "backend_http_settings_collection":
                     ev = kwargs[key]
                     for i in range(len(ev)):
@@ -668,12 +562,6 @@ class AzureRMApplicationGateways(AzureRMModuleBase):
                             item['protocol'] = _snake_to_camel(item['protocol'], True)
                         if 'cookie_based_affinity' in item:
                             item['cookie_based_affinity'] = _snake_to_camel(item['cookie_based_affinity'], True)
-                        if 'probe' in item:
-                            id = probe_id(self.subscription_id,
-                                          kwargs['resource_group'],
-                                          kwargs['name'],
-                                          item['probe'])
-                            item['probe'] = {'id': id}
                     self.parameters["backend_http_settings_collection"] = ev
                 elif key == "http_listeners":
                     ev = kwargs[key]
@@ -724,18 +612,58 @@ class AzureRMApplicationGateways(AzureRMModuleBase):
                                                   kwargs['name'],
                                                   item['http_listener'])
                             item['http_listener'] = {'id': id}
+                        if 'url_path_map' in item:
+                            id = url_path_map_id(self.subscription_id,
+                                                  kwargs['resource_group'],
+                                                  kwargs['name'],
+                                                  item['url_path_map'])
+                            item['url_path_map'] = {'id': id}
                         if 'protocol' in item:
                             item['protocol'] = _snake_to_camel(item['protocol'], True)
+                        
+
                         if 'rule_type' in ev:
                             item['rule_type'] = _snake_to_camel(item['rule_type'], True)
-                        if 'redirect_configuration' in item:
-                            id = redirect_configuration_id(self.subscription_id,
-                                                           kwargs['resource_group'],
-                                                           kwargs['name'],
-                                                           item['redirect_configuration'])
-                            item['redirect_configuration'] = {'id': id}
                         ev[i] = item
                     self.parameters["request_routing_rules"] = ev
+                elif key == "url_path_maps":
+                    ev = kwargs[key]
+                    for i in range(len(ev)):
+                        item = ev[i]
+                        if 'default_backend_address_pool' in item:
+                            id = backend_address_pool_id(self.subscription_id,
+                                                         kwargs['resource_group'],
+                                                         kwargs['name'],
+                                                         item['default_backend_address_pool'])
+                            item['default_backend_address_pool'] = {'id': id}
+                        if 'default_backend_http_settings' in item:
+                            id = backend_http_settings_id(self.subscription_id,
+                                                          kwargs['resource_group'],
+                                                          kwargs['name'],
+                                                          item['default_backend_http_settings'])
+                            item['default_backend_http_settings'] = {'id': id}
+
+                        if 'path_rules' in item:
+                            ev2 = item['path_rules']
+                            for i2 in range(len(ev2)):
+                                item2 = ev2[i2]
+                                if 'backend_address_pool' in item2:
+                                    id = backend_address_pool_id(self.subscription_id,
+                                                         kwargs['resource_group'],
+                                                         kwargs['name'],
+                                                         item2['backend_address_pool'])
+                                    item2['backend_address_pool'] = {'id': id}
+                                if 'backend_http_settings' in item2:
+                                    id = backend_http_settings_id(self.subscription_id,
+                                                          kwargs['resource_group'],
+                                                          kwargs['name'],
+                                                          item2['backend_http_settings'])
+                                    item2['backend_http_settings'] = {'id': id}
+                                ev2[i2] = item2
+                            item['path_rules'] = ev2
+                        ev[i] = item
+                    self.parameters["url_path_maps"] = ev
+
                 elif key == "etag":
                     self.parameters["etag"] = kwargs[key]
 
@@ -767,22 +695,79 @@ class AzureRMApplicationGateways(AzureRMModuleBase):
                 self.to_do = Actions.Update
 
         if (self.to_do == Actions.Update):
-            if (self.parameters['location'] != old_response['location'] or
-                    self.parameters['sku']['name'] != old_response['sku']['name'] or
-                    self.parameters['sku']['tier'] != old_response['sku']['tier'] or
-                    self.parameters['sku']['capacity'] != old_response['sku']['capacity'] or
-                    not compare_arrays(old_response, self.parameters, 'authentication_certificates') or
-                    not compare_arrays(old_response, self.parameters, 'gateway_ip_configurations') or
-                    not compare_arrays(old_response, self.parameters, 'redirect_configurations') or
-                    not compare_arrays(old_response, self.parameters, 'frontend_ip_configurations') or
-                    not compare_arrays(old_response, self.parameters, 'frontend_ports') or
-                    not compare_arrays(old_response, self.parameters, 'backend_address_pools') or
-                    not compare_arrays(old_response, self.parameters, 'probes') or
-                    not compare_arrays(old_response, self.parameters, 'backend_http_settings_collection') or
-                    not compare_arrays(old_response, self.parameters, 'request_routing_rules') or
-                    not compare_arrays(old_response, self.parameters, 'http_listeners')):
+            #if (self.parameters['location'] != old_response['location'] or
+            #        self.parameters['sku']['name'] != old_response['sku']['name'] or
+            #        self.parameters['sku']['tier'] != old_response['sku']['tier'] or
+            #        self.parameters['sku']['capacity'] != old_response['sku']['capacity'] or
+            #        not compare_arrays(old_response, self.parameters, 'authentication_certificates') or
+            #        not compare_arrays(old_response, self.parameters, 'gateway_ip_configurations') or
+            #        not compare_arrays(old_response, self.parameters, 'frontend_ip_configurations') or
+            #        not compare_arrays(old_response, self.parameters, 'frontend_ports') or
+            #        not compare_arrays(old_response, self.parameters, 'backend_address_pools') or
+            #        not compare_arrays(old_response, self.parameters, 'backend_http_settings_collection') or
+            #        not compare_arrays(old_response, self.parameters, 'request_routing_rules') or
+            #        not compare_arrays(old_response, self.parameters, 'http_listeners')):
+            #    
+            #    self.to_do = Actions.Update
 
+            if (self.parameters['location'] != old_response['location'] or
+                self.parameters['sku']['name'] != old_response['sku']['name'] or
+                self.parameters['sku']['tier'] != old_response['sku']['tier'] or
+                self.parameters['sku']['capacity'] != old_response['sku']['capacity']):
+
+                self.log("location or sku changed")
+                self.results['changeval'] = "loc_sku"
                 self.to_do = Actions.Update
+            elif (not compare_arrays(old_response, self.parameters, 'authentication_certificates')):
+                
+                self.log("authentication_certificates changed")
+                self.results['changeval'] = "authentication_certificates"
+                self.to_do = Actions.Update
+
+            elif (not compare_arrays(old_response, self.parameters, 'gateway_ip_configurations')):
+                
+                self.log("gateway_ip_configurations changed")
+                self.results['changeval'] = "gateway_ip_configurations"
+                self.to_do = Actions.Update
+
+            elif (not compare_arrays(old_response, self.parameters, 'frontend_ip_configurations')):
+                
+                self.log("frontend_ip_configurations changed")
+                self.results['changeval'] = "frontend_ip_configurations"
+                self.to_do = Actions.Update
+
+            elif (not compare_arrays(old_response, self.parameters, 'frontend_ports')):
+                
+                self.log("frontend_ports changed")
+                self.results['changeval'] = "frontend_ports"
+                self.to_do = Actions.Update
+
+            elif (not compare_arrays(old_response, self.parameters, 'backend_address_pools')):
+                
+                self.log("backend_address_pools changed")
+                self.results['changeval'] = "backend_address_pools"
+                self.to_do = Actions.Update
+
+            elif (not compare_arrays(old_response, self.parameters, 'backend_http_settings_collection')):
+                
+                self.log("backend_http_settings_collection changed")
+                self.results['changeval'] = "backend_http_settings_collection"
+                self.results['oldval'] = "backend_address_pools"
+                self.results['newval'] = "backend_address_pools"
+                self.to_do = Actions.Update
+
+            elif (not compare_arrays(old_response, self.parameters, 'request_routing_rules')):
+                
+                self.log("request_routing_rules changed")
+                self.results['changeval'] = "request_routing_rules"
+                self.to_do = Actions.Update
+
+            elif (not compare_arrays(old_response, self.parameters, 'http_listeners')):
+                
+                self.log("http_listeners changed")
+                self.results['changeval'] = "http_listeners"
+                self.to_do = Actions.Update
+
             else:
                 self.to_do = Actions.NoAction
 
@@ -835,12 +820,13 @@ class AzureRMApplicationGateways(AzureRMModuleBase):
             response = self.mgmt_client.application_gateways.create_or_update(resource_group_name=self.resource_group,
                                                                               application_gateway_name=self.name,
                                                                               parameters=self.parameters)
-            if isinstance(response, LROPoller):
+            if isinstance(response, AzureOperationPoller):
                 response = self.get_poller_result(response)
 
         except CloudError as exc:
             self.log('Error attempting to create the Application Gateway instance.')
             self.fail("Error creating the Application Gateway instance: {0}".format(str(exc)))
+            
         return response.as_dict()
 
     def delete_applicationgateway(self):
@@ -880,7 +866,6 @@ class AzureRMApplicationGateways(AzureRMModuleBase):
 
         return False
 
-
 def public_ip_id(subscription_id, resource_group_name, name):
     """Generate the id for a frontend ip configuration"""
     return '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/publicIPAddresses/{2}'.format(
@@ -888,7 +873,6 @@ def public_ip_id(subscription_id, resource_group_name, name):
         resource_group_name,
         name
     )
-
 
 def frontend_ip_configuration_id(subscription_id, resource_group_name, appgateway_name, name):
     """Generate the id for a frontend ip configuration"""
@@ -899,7 +883,6 @@ def frontend_ip_configuration_id(subscription_id, resource_group_name, appgatewa
         name
     )
 
-
 def frontend_port_id(subscription_id, resource_group_name, appgateway_name, name):
     """Generate the id for a frontend port"""
     return '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/applicationGateways/{2}/frontendPorts/{3}'.format(
@@ -908,17 +891,6 @@ def frontend_port_id(subscription_id, resource_group_name, appgateway_name, name
         appgateway_name,
         name
     )
-
-
-def redirect_configuration_id(subscription_id, resource_group_name, appgateway_name, name):
-    """Generate the id for a redirect configuration"""
-    return '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/applicationGateways/{2}/redirectConfigurations/{3}'.format(
-        subscription_id,
-        resource_group_name,
-        appgateway_name,
-        name
-    )
-
 
 def ssl_certificate_id(subscription_id, resource_group_name, ssl_certificate_name, name):
     """Generate the id for a frontend port"""
@@ -929,7 +901,6 @@ def ssl_certificate_id(subscription_id, resource_group_name, ssl_certificate_nam
         name
     )
 
-
 def backend_address_pool_id(subscription_id, resource_group_name, appgateway_name, name):
     """Generate the id for an address pool"""
     return '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/applicationGateways/{2}/backendAddressPools/{3}'.format(
@@ -938,17 +909,6 @@ def backend_address_pool_id(subscription_id, resource_group_name, appgateway_nam
         appgateway_name,
         name
     )
-
-
-def probe_id(subscription_id, resource_group_name, appgateway_name, name):
-    """Generate the id for a probe"""
-    return '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/applicationGateways/{2}/probes/{3}'.format(
-        subscription_id,
-        resource_group_name,
-        appgateway_name,
-        name
-    )
-
 
 def backend_http_settings_id(subscription_id, resource_group_name, appgateway_name, name):
     """Generate the id for a http settings"""
@@ -959,13 +919,31 @@ def backend_http_settings_id(subscription_id, resource_group_name, appgateway_na
         name
     )
 
-
 def http_listener_id(subscription_id, resource_group_name, appgateway_name, name):
     """Generate the id for a http listener"""
     return '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/applicationGateways/{2}/httpListeners/{3}'.format(
         subscription_id,
         resource_group_name,
         appgateway_name,
+        name
+    )
+
+def url_path_map_id(subscription_id, resource_group_name, appgateway_name, name):
+    """Generate the id for a url path map"""
+    return '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/applicationGateways/{2}/urlPathMaps/{3}'.format(
+        subscription_id,
+        resource_group_name,
+        appgateway_name,
+        name
+    )
+
+def url_path_map_path_rule_id(subscription_id, resource_group_name, appgateway_name, url_path_map_name, name):
+    """Generate the id for a path rule in a url path map"""
+    return '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/applicationGateways/{2}/urlPathMaps/{3}/pathRules/{4}'.format(
+        subscription_id,
+        resource_group_name,
+        appgateway_name,
+        url_path_map_name,
         name
     )
 
@@ -984,13 +962,11 @@ def compare_arrays(old_params, new_params, param_name):
         newd[name] = item
 
     newd = dict_merge(oldd, newd)
-    return newd == oldd
 
+    return newd == oldd
 
 def main():
     """Main execution"""
     AzureRMApplicationGateways()
 
-
 if __name__ == '__main__':
-    main()
